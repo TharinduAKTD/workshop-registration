@@ -1,13 +1,35 @@
-# Workshop Registration Service — Design decisions
+# Workshop Registration Service — Design Decisions
 
-**Stack.** React + TypeScript with Vite for the interface; Express + TypeScript for the API; PostgreSQL with node-postgres for persistence. These are familiar, keep the project small, and make the critical transaction logic explicit. Parameterized SQL avoids interpolation of user data. No ORM or separate migration framework is needed for this small assessment.
+**1. Technology Stack**
 
-**Access.** There is no public signup. The setup script seeds only the first Admin. Admin creates other accounts and assigns roles; Managers create/edit workshops and handle registrations; Staff handle registrations. Manager and Staff can view workshops and registration history. Admin is explicitly refused access to workshop and registration operations as required by the supplied matrix. Every protected API route authenticates a signed, expiring JWT and checks the current database role. Passwords are bcrypt hashes. UI visibility improves usability but is not the security boundary.
+I used React with TypeScript and Vite for the frontend, Express with TypeScript for the backend, and PostgreSQL for the database. I chose these technologies because I am familiar with them, and they are suitable for building a simple full-stack application. I used raw SQL with parameterized queries instead of an ORM.
 
-**Preventing over-registration.** Registration opens a READ COMMITTED transaction on one checked-out connection and locks the parent workshop with SELECT FOR UPDATE. After acquiring the lock, a separate query counts ACTIVE registrations. If the count equals capacity, the API returns 409 and rolls back; otherwise it inserts the registration and its REGISTERED event and commits. Requests for the same workshop therefore queue behind the same lock, including requests for the first seat. Cancellation and capacity edits acquire that same workshop lock. An edit cannot lower capacity beneath the active count. Different workshops can be processed independently. All application writers must keep this locking protocol; manual privileged database writes are outside the API's guarantee.
+**2. Authentication and Permissions**
 
-**History.** Registrations are never deleted by the application. Cancellation stores the cancelling user/time and inserts a CANCELLED event in the same transaction. A repeated cancellation does not add a second event. A later re-registration creates a new record while keeping the old one. Seat availability is derived from ACTIVE rows, avoiding a mutable counter drifting from the actual registrations. Foreign keys preserve actor references; there is no account-delete endpoint.
+The system has three roles: Admin, Manager, and Staff. The first Admin account is created during database setup. Admins can create users and assign roles. Managers can manage workshops and registrations. Staff can register and cancel attendees. Managers and Staff can view workshops and registration history.
 
-**Assumptions.** Only OPEN workshops accept registrations. Other statuses are CLOSED, CANCELLED and COMPLETED; changing a workshop status does not silently cancel attendee records. One normalized email can have only one active registration per workshop, enforced by a partial unique index. Location is an extra field, using free text for the three centres. Date-range filters include both boundary dates in Asia/Colombo; stored timestamps use TIMESTAMPTZ. The date/time editor uses the device timezone and submits ISO timestamps. Past-date registration is not separately blocked because the brief does not specify this rule.
+JWT is used for authentication, and passwords are securely hashed using bcrypt. Permissions are checked in the backend, not only in the frontend.
 
-**Trade-offs and skipped work.** The required connected local app, seeded sample workshops, permissions, filters and registration history are included. Waitlist, audit of workshop/account edits, public hosting, password reset, email delivery and advanced pagination are omitted. JWTs in sessionStorage are a small-assessment choice; a production system would revisit session storage, revocation, password workflows, observability and deployment hardening. Verification includes builds and integration checks for concurrent requests, permissions, cancellation/history, duplicates, filtering and capacity edits.
+**3. Preventing Over-Registration**
+
+A workshop cannot have more active registrations than its capacity. I used PostgreSQL transactions and `SELECT FOR UPDATE` to lock a workshop while processing a registration. This prevents multiple staff members from booking the last available seat at the same time.
+
+If a workshop is full, the registration is rejected. Cancelling a registration frees a seat. The system also prevents reducing workshop capacity below the current number of active registrations.
+
+**4. Registration History**
+
+Registration records are never deleted. When an attendee cancels, the registration status changes to CANCELLED. The system records who registered or cancelled the attendee and when. Registration and cancellation events are saved in the database to maintain history.
+
+**5. Assumptions**
+
+Only OPEN workshops accept registrations. Each email address can have only one active registration per workshop. Workshop locations are stored as text. Dates and times are stored using PostgreSQL TIMESTAMPTZ, with filtering based on the Colombo timezone. Registration for past workshops is not separately restricted because it was not specified in the requirements.
+
+**6. Trade-offs and Skipped Features**
+
+I focused on completing the main requirements within the assessment time. The application includes authentication, role-based permissions, workshop management, registration, cancellation, history, and filtering.
+
+Optional features such as waitlists, detailed audit logs for workshop and account changes, public deployment, password reset, and advanced pagination were not implemented.
+
+JWT tokens are stored in sessionStorage for this assessment. For a production application, I would improve session security and add further security and monitoring features.
+
+The project also includes build and integration tests covering permissions, concurrent registrations, cancellations, duplicate registrations, filters, and capacity updates.
